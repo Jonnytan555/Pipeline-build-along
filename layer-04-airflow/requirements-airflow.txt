@@ -1,0 +1,6 @@
+# Extra packages installed on top of the base apache/airflow image.
+# These give DAG tasks access to the pipeline's data sources.
+pymssql==2.3.1
+boto3==1.34.0
+pandas==2.0.3
+psycopg2-binary==2.9.9

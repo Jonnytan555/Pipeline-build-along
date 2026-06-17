@@ -1,0 +1,18 @@
+# ============================================================
+# LAYER 10 — Grafana datasource provisioning
+#
+# Grafana can be pre-configured with data sources via files
+# in /etc/grafana/provisioning/datasources/.  This means
+# the Prometheus connection is ready the moment the container
+# starts — no manual UI setup needed.
+# ============================================================
+
+apiVersion: 1
+
+datasources:
+  - name:       Prometheus
+    type:       prometheus
+    url:        http://prometheus:9090
+    access:     proxy
+    isDefault:  true
+    editable:   false

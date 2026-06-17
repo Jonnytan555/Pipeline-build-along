@@ -1,0 +1,516 @@
+# ============================================================
+# PIPELINE BUILD-ALONG — docker-compose.yml
+#
+# This file grows with each layer. Services are grouped and
+# labelled so you can see exactly what was added when.
+#
+# LAYER 1  → mssql, mssql-init
+# LAYER 2  → minio, minio-init           (added in layer 2)
+# LAYER 3  → spark-master, spark-worker  (added in layer 3)
+# LAYER 4  → postgres, airflow-*         (added in layer 4)
+# LAYER 5  → zookeeper, kafka, kafka-producer
+# LAYER 6  → redis, mongodb, influxdb
+# LAYER 10 → prometheus, grafana
+# LAYER 11 → mlflow
+# ============================================================
+
+networks:
+  pipeline:
+    driver: bridge
+
+volumes:
+  mssql_data:
+  minio_data:
+  postgres_data:
+  influxdb_data:
+  mlflow_data:
+
+# ============================================================
+# LAYER 1 — SOURCE SYSTEM (SQL Server)
+# ============================================================
+#
+# WHY SQL Server?
+#   MSSQL is the most common enterprise OLTP database on
+#   Windows estates. The free Developer/Express edition and
+#   the official Docker image make it easy to run locally
+#   with the same behaviour you would see in production.
+#
+# Key concepts:
+#   - mcr.microsoft.com/mssql/server  → Microsoft's official
+#     container registry image (works on Linux containers).
+#   - ACCEPT_EULA=Y     → required by Microsoft licensing.
+#   - SA_PASSWORD       → the system administrator account.
+#     In production you would use a least-privilege login.
+#   - Named volume (mssql_data) → data survives restarts.
+#   - mssql-init service → SQL Server does NOT auto-run .sql
+#     files on startup the way MySQL does. Instead we use a
+#     second container that waits for MSSQL to be healthy,
+#     then runs sqlcmd to execute our init script.
+#
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: ${SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    healthcheck:
+      test: >
+        /opt/mssql-tools18/bin/sqlcmd
+        -S localhost -U sa -P "$$SA_PASSWORD"
+        -C -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - pipeline
+
+  # Runs once after mssql is healthy to create the schema + seed data.
+  # Uses sqlcmd (bundled in the mssql image) to execute our T-SQL file.
+  mssql-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql-init
+    depends_on:
+      mssql:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - ./layer-01-mssql/scripts/init_db.sql:/scripts/init_db.sql:ro
+    command: >
+      /bin/bash -c "
+        /opt/mssql-tools18/bin/sqlcmd
+          -S mssql -U sa -P \"$$SA_PASSWORD\"
+          -C -i /scripts/init_db.sql &&
+        echo 'Schema and seed data applied.'
+      "
+    networks:
+      - pipeline
+
+# ============================================================
+# LAYER 2 — DATA LAKE (MinIO)  — added in layer 2
+# ============================================================
+#
+# WHY a data lake?
+#   Before you transform data you need somewhere cheap and
+#   durable to land it in its raw form.  Object storage
+#   (S3 / MinIO) is that place.  This "raw zone" means:
+#     - You can reprocess from scratch if a bug is found
+#     - You keep the original data unchanged forever
+#     - Multiple consumers (Spark, ML, BI) can read the
+#       same raw files without touching the source DB again
+#
+# WHY MinIO instead of AWS S3?
+#   MinIO is 100% S3-API compatible, so every boto3 call you
+#   write here works unchanged against real AWS S3 in prod.
+#   You just swap the endpoint_url.
+#
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console (open http://localhost:9001)
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - pipeline
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    env_file: .env
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+        mc mb --ignore-existing local/$${MINIO_BUCKET_RAW} &&
+        mc mb --ignore-existing local/$${MINIO_BUCKET_PROCESSED} &&
+        echo 'Buckets ready.' &&
+        exit 0
+      "
+    networks:
+      - pipeline
+
+# ============================================================
+# LAYER 3 — WAREHOUSE (SQL Server) + SPARK
+# ============================================================
+#
+# The warehouse tables (orders_enriched, revenue_by_customer,
+# revenue_by_category, star schema) live in SQL Server source_db
+# alongside the source tables.  Run init_warehouse.sql in SSMS
+# to create them before submitting the Spark job.
+#
+# PostgreSQL below is kept for Airflow metadata (Layer 4) and
+# MLflow experiment tracking (Layer 11) — it does NOT host the
+# warehouse in this setup.
+#
+# WHY Spark Standalone instead of Spark on Kubernetes?
+#   Standalone mode is the simplest way to run a Spark cluster
+#   locally.  One master + one worker is enough to demonstrate
+#   distributed data processing concepts without the overhead
+#   of a full K8s cluster.
+#
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Auto-executed on first start — creates warehouse + star schema tables
+      - ./layer-03-spark/scripts/init_warehouse_pg.sql:/docker-entrypoint-initdb.d/init_warehouse.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pipeline
+
+  spark-master:
+    build: ./layer-03-spark
+    container_name: spark-master
+    restart: unless-stopped
+    environment:
+      SPARK_MODE:                      master
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED:    "no"
+    env_file: .env
+    ports:
+      - "8080:8080"   # Spark Web UI
+      - "7077:7077"   # Spark master port
+    volumes:
+      - ./layer-03-spark/jobs:/opt/spark/jobs
+    networks:
+      - pipeline
+
+  spark-worker:
+    build: ./layer-03-spark
+    container_name: spark-worker
+    restart: unless-stopped
+    environment:
+      SPARK_MODE:                      worker
+      SPARK_MASTER_URL:                spark://spark-master:7077
+      SPARK_WORKER_MEMORY:             ${SPARK_EXECUTOR_MEMORY}
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED:    "no"
+    env_file: .env
+    depends_on:
+      - spark-master
+    networks:
+      - pipeline
+
+# ============================================================
+# LAYER 4 — ORCHESTRATION (Airflow)
+# ============================================================
+#
+# Three services make up Airflow:
+#   airflow-init      → runs once: db init + admin user creation
+#   airflow-webserver → the UI (http://localhost:8081)
+#   airflow-scheduler → polls for DAGs due to run, submits tasks
+#
+# LocalExecutor runs tasks as subprocesses on the scheduler
+# container — fine for development.  In production you would
+# use CeleryExecutor (distributed) or KubernetesExecutor.
+#
+  airflow-init:
+    build: ./layer-04-airflow
+    container_name: airflow-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR:                  LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN:      ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__CORE__LOAD_EXAMPLES:             "false"
+    volumes:
+      - ./layer-04-airflow/dags:/opt/airflow/dags
+    command: >
+      bash -c
+      "airflow db init &&
+      airflow users create
+      --username ${AIRFLOW_ADMIN_USER}
+      --password ${AIRFLOW_ADMIN_PASSWORD}
+      --firstname Admin --lastname User
+      --role Admin --email admin@pipeline.local"
+    restart: on-failure
+    networks:
+      - pipeline
+
+  airflow-webserver:
+    build: ./layer-04-airflow
+    container_name: airflow-webserver
+    restart: unless-stopped
+    depends_on:
+      - airflow-init
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR:             LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__CORE__LOAD_EXAMPLES:        "false"
+      AIRFLOW__API__AUTH_BACKENDS:         airflow.api.auth.backend.basic_auth
+    ports:
+      - "8082:8080"   # Airflow UI
+    volumes:
+      - ./layer-04-airflow/dags:/opt/airflow/dags
+    command: webserver
+    networks:
+      - pipeline
+
+  airflow-scheduler:
+    build: ./layer-04-airflow
+    container_name: airflow-scheduler
+    restart: unless-stopped
+    depends_on:
+      - airflow-init
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR:             LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__CORE__LOAD_EXAMPLES:        "false"
+      AIRFLOW__API__AUTH_BACKENDS:         airflow.api.auth.backend.basic_auth
+    volumes:
+      - ./layer-04-airflow/dags:/opt/airflow/dags
+    command: scheduler
+    networks:
+      - pipeline
+
+# ============================================================
+# LAYER 5 — STREAMING (Kafka)
+# ============================================================
+#
+# Zookeeper coordinates the Kafka broker cluster.
+# In Kafka 3.3+ you can use KRaft mode (no Zookeeper), but
+# Zookeeper is still the most documented setup for learners.
+#
+# Two ports on Kafka:
+#   9092  → for clients running on the host machine (your scripts)
+#   29092 → for clients inside the Docker network (other containers)
+#
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME:   2000
+    networks:
+      - pipeline
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID:                        1
+      KAFKA_ZOOKEEPER_CONNECT:                zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:   PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS:             PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME:       PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE:        "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - pipeline
+
+  kafka-producer:
+    build: ./layer-05-kafka
+    container_name: kafka-producer
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      KAFKA_TOPIC:  ${KAFKA_TOPIC}
+    networks:
+      - pipeline
+
+# ============================================================
+# LAYER 6 — MULTI-STORE SINKS
+# ============================================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pipeline
+
+  mongodb:
+    image: mongo:7
+    container_name: mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    networks:
+      - pipeline
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE:         setup
+      DOCKER_INFLUXDB_INIT_USERNAME:     admin
+      DOCKER_INFLUXDB_INIT_PASSWORD:     influx_pass
+      DOCKER_INFLUXDB_INIT_ORG:          ${INFLUXDB_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET:       ${INFLUXDB_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN:  ${INFLUXDB_TOKEN}
+    networks:
+      - pipeline
+
+# ============================================================
+# LAYER 9 — API (FastAPI)
+# ============================================================
+
+  pipeline-api:
+    build:
+      context: .
+      dockerfile: layer-09-api/Dockerfile
+    container_name: pipeline-api
+    restart: unless-stopped
+    depends_on:
+      mssql:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DB_HOST:    mssql
+      DB_USER:    sa
+      REDIS_HOST: redis
+    ports:
+      - "8000:8000"   # REST API + /docs + /metrics
+    networks:
+      - pipeline
+
+# ============================================================
+# LAYER 10 — MONITORING (Prometheus + Grafana)
+# ============================================================
+#
+# Prometheus scrapes /metrics from the FastAPI service every 15 s.
+# Grafana reads from Prometheus and renders dashboards.
+#
+# UIs:
+#   Prometheus:  http://localhost:9090
+#   Grafana:     http://localhost:3000  (admin / admin_pass)
+#
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./layer-10-monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    networks:
+      - pipeline
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASS}
+    volumes:
+      - ./layer-10-monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - pipeline
+
+# ============================================================
+# LAYER 11 — ML TRACKING (MLflow)
+# ============================================================
+#
+# MLflow tracks experiments, parameters, metrics, and model
+# artefacts.  We use:
+#   backend-store-uri → SQLite file inside the named volume.
+#     Simple, zero-dependency, survives container restarts.
+#     In production swap for:
+#       postgresql+psycopg2://user:pass@host/mlflow_db
+#       or mssql+pyodbc://...
+#   default-artifact-root → same volume, /mlflow/artifacts
+#     In production swap for s3://bucket/mlflow-artifacts
+#
+# WHY SQLite instead of PostgreSQL here?
+#   The postgres service is kept alive only because Airflow needs
+#   it (Layer 4). Using SQLite for MLflow removes that hard
+#   dependency so you can run Layer 11 without Layer 4 up.
+#   SQLite handles a single training script without any issues.
+#
+# UI: http://localhost:5001
+#
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    container_name: mlflow
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    command: >
+      mlflow server
+        --backend-store-uri sqlite:////mlflow/mlflow.db
+        --default-artifact-root /mlflow/artifacts
+        --host 0.0.0.0
+        --port 5000
+    networks:
+      - pipeline

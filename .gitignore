@@ -1,0 +1,35 @@
+# Environment / secrets
+.env
+.env.*
+*.env
+
+# MinIO local data & binary
+minio/
+
+# Lock files
+*.lock
+.__*.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# Java binaries
+*.jar
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

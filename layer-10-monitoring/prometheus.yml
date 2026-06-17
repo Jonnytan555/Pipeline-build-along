@@ -1,0 +1,43 @@
+# ============================================================
+# LAYER 10 — Prometheus scrape configuration
+#
+# Prometheus works by PULLING metrics from targets on a schedule
+# (the "scrape").  Each target exposes a /metrics endpoint in
+# the Prometheus exposition format (plain text key-value pairs).
+#
+# WHY pull instead of push?
+#   Pull-based monitoring is self-healing: if a target disappears
+#   Prometheus knows immediately (no metrics = target is down).
+#   Push-based systems require the target to keep pushing, so a
+#   silent crash looks like normal operation until the pushes stop.
+#
+# scrape_interval: how often to collect metrics.
+# evaluation_interval: how often to evaluate alerting rules.
+# ============================================================
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: "local-dev"
+
+scrape_configs:
+
+  # ── Pipeline API (FastAPI) ───────────────────────────────────
+  # The FastAPI app exposes /metrics via prometheus-client.
+  # Metrics tracked:
+  #   api_requests_total          → request count by endpoint + status
+  #   api_request_latency_seconds → histogram of response times
+  #   api_cache_hits_total        → Redis cache hits
+  #   api_cache_misses_total      → Redis cache misses (= Postgres calls)
+  - job_name: "pipeline_api"
+    static_configs:
+      - targets: ["pipeline-api:8000"]
+    metrics_path: /metrics
+
+  # ── Prometheus self-monitoring ────────────────────────────────
+  # Prometheus exposes its own metrics so you can alert on
+  # scrape failures, config reload errors, etc.
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -1,0 +1,46 @@
+# ============================================================
+# PIPELINE BUILD-ALONG — requirements.txt
+# Install everything upfront; each layer only uses its section.
+# ============================================================
+
+# LAYER 1 — SQL Server
+pymssql==2.3.1
+pandas==2.1.4
+# common-db utils (local editable install — run: pip install -e C:/Python/common_libraries/common-db)
+# db @ file:///C:/Python/common_libraries/common-db
+
+# LAYER 2 — MinIO / S3
+boto3==1.34.0
+
+# LAYER 3 — PySpark (local testing; Spark itself runs in Docker)
+pyspark==3.5.3
+
+# LAYER 4 — Airflow HTTP client (Airflow runs in Docker)
+requests==2.31.0
+
+# LAYER 5 — Kafka
+kafka-python==2.0.2
+
+# LAYER 6 — Multi-store sinks
+pymongo==4.6.1
+redis==5.0.1
+influxdb-client==1.38.0
+
+# LAYER 7 — Data quality
+great-expectations==0.18.8
+
+# LAYER 8 — PostgreSQL warehouse
+psycopg2-binary==2.9.9
+
+# LAYER 9 — FastAPI
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+
+# LAYER 10 — Prometheus metrics
+prometheus-client==0.19.0
+
+# LAYER 11 — ML tracking
+mlflow==2.9.2
+scikit-learn==1.3.2
+numpy==1.26.2

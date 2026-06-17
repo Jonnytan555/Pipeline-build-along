@@ -1,0 +1,17 @@
+# ============================================================
+# LAYER 10 — Grafana dashboard provisioning config
+#
+# Tells Grafana where to find dashboard JSON files.
+# Any .json file dropped into the 'path' directory is
+# automatically imported on startup.
+# ============================================================
+
+apiVersion: 1
+
+providers:
+  - name:            "Pipeline Dashboards"
+    type:            file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

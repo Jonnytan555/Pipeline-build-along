@@ -48,11 +48,13 @@ Run:
 """
 
 import logging
+import os
 from datetime import datetime, timedelta
 from io import StringIO
 
 import pandas as pd
 
+os.environ.setdefault("GX_ANALYTICS_ENABLED", "False")
 log = logging.getLogger(__name__)
 
 # ── Sample data ───────────────────────────────────────────────────────────────
@@ -150,7 +152,7 @@ def build_orders_suite():
 
 # ── Validation runner ─────────────────────────────────────────────────────────
 
-def validate(df: pd.DataFrame, label: str) -> bool:
+def validate(df: pd.DataFrame, label: str, context=None, _counter=[0]) -> bool:
     """
     Validate a DataFrame against the orders suite.
     Returns True if all expectations pass.
@@ -161,11 +163,13 @@ def validate(df: pd.DataFrame, label: str) -> bool:
     """
     import great_expectations as gx
 
-    context = gx.get_context()
+    if context is None:
+        context = gx.get_context()
     suite_name = "orders_suite"
 
-    # Create an in-memory data source (no external connection needed)
-    data_source = context.data_sources.add_pandas("pandas_source")
+    # Use a unique source name per call to avoid name collisions
+    _counter[0] += 1
+    data_source = context.data_sources.add_pandas(f"pandas_source_{_counter[0]}")
     data_asset  = data_source.add_dataframe_asset(name="orders_batch")
     batch_def   = data_asset.add_batch_definition_whole_dataframe("batch")
     batch       = batch_def.get_batch(batch_parameters={"dataframe": df})
@@ -229,10 +233,12 @@ def run_walkthrough() -> None:
     # Try GE first; fall back to plain pandas if GE not installed
     try:
         import great_expectations as gx
+        # Silence GE's verbose internal logging — we only want our own output
+        logging.getLogger("great_expectations").setLevel(logging.ERROR)
         print(f"\n  Great Expectations {gx.__version__} found. Running GE validation.")
-        build_orders_suite()
-        validate(good, "GOOD data")
-        validate(bad,  "BAD data")
+        context, _suite = build_orders_suite()
+        validate(good, "GOOD data", context=context)
+        validate(bad,  "BAD data",  context=context)
         print("""
   Next step: run `great_expectations docs build` to open the HTML Data Docs
   report — a browsable record of every validation run with pass/fail stats.

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeline-config
+  namespace: pipeline
+data:
+  AWS_REGION: "eu-west-2"
+  S3_RAW_BUCKET: "pipeline-033484685711-raw"
+  S3_PROCESSED_BUCKET: "pipeline-033484685711-processed"
+  DB_HOST: "pipeline-warehouse.c1062y0g24g2.eu-west-2.rds.amazonaws.com"
+  DB_PORT: "5432"
+  DB_NAME: "warehouse_db"
+  LOG_LEVEL: "INFO"

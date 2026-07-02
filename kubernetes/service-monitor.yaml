@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pipeline-api
+  namespace: pipeline
+  labels:
+    release: prometheus   # must match the Prometheus operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: pipeline-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

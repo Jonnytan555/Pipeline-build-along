@@ -1,0 +1,28 @@
+# AWS (eu-west-2) overrides
+replicaCount: 2
+
+service:
+  type: LoadBalancer   # AWS NLB via AWS Load Balancer Controller
+
+ingress:
+  enabled: true
+  host: api.pipeline.aws.internal
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+
+config:
+  awsRegion: "eu-west-2"
+  s3RawBucket: "pipeline-033484685711-raw"
+  s3ProcessedBucket: "pipeline-033484685711-processed"
+  dbHost: "pipeline-warehouse.c1062y0g24g2.eu-west-2.rds.amazonaws.com"
+  dbName: "warehouse_db"
+  logLevel: "INFO"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70

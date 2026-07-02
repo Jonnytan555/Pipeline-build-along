@@ -1,0 +1,24 @@
+# Azure (AKS, uksouth) overrides
+replicaCount: 2
+
+service:
+  type: LoadBalancer
+
+ingress:
+  enabled: true
+  host: api.pipeline.azure.internal
+  className: nginx
+
+config:
+  awsRegion: ""
+  s3RawBucket: ""           # replaced by Azure Blob Storage in actual Azure deploy
+  s3ProcessedBucket: ""
+  dbHost: "pipeline-warehouse.postgres.database.azure.com"
+  dbName: "warehouse_db"
+  logLevel: "INFO"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70

@@ -1,0 +1,21 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is git-ignored — never commit real credentials.
+
+aws_region   = "eu-west-2"
+project_name = "pipeline"
+environment  = "dev"
+
+# Networking
+vpc_cidr             = "10.0.0.0/16"
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
+
+# RDS — db.t3.micro is free-tier eligible
+db_instance_class = "db.t3.micro"
+db_name           = "warehouse_db"
+db_username       = "pipeline_user"
+db_password       = "CHANGE_ME_strong_password_here"
+
+# S3 — leave empty to auto-generate names, or set explicitly
+# s3_raw_bucket_name       = "my-pipeline-raw"
+# s3_processed_bucket_name = "my-pipeline-processed"

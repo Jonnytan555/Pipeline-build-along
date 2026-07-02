@@ -70,17 +70,23 @@ SCRIPTS_DIR = ROOT / "scripts"
 
 
 def kubectl(args: list[str]) -> tuple[int, str]:
-    result = subprocess.run(
-        ["kubectl"] + args, capture_output=True, text=True,
-    )
-    return result.returncode, result.stdout + result.stderr
+    try:
+        result = subprocess.run(
+            ["kubectl"] + args, capture_output=True, text=True,
+        )
+        return result.returncode, result.stdout + result.stderr
+    except FileNotFoundError:
+        return 1, "kubectl not found"
 
 
 def helm(args: list[str]) -> tuple[int, str]:
-    result = subprocess.run(
-        ["helm"] + args, capture_output=True, text=True,
-    )
-    return result.returncode, result.stdout + result.stderr
+    try:
+        result = subprocess.run(
+            ["helm"] + args, capture_output=True, text=True,
+        )
+        return result.returncode, result.stdout + result.stderr
+    except FileNotFoundError:
+        return 1, "helm not found"
 
 
 def kubectl_available() -> bool:

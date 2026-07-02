@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline-api
+  namespace: pipeline
+  labels:
+    app: pipeline-api
+    version: v1.0.0
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pipeline-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1   # at most 1 Pod down during update — no full outage
+      maxSurge: 1         # at most 1 extra Pod — controls cost during rollout
+  template:
+    metadata:
+      labels:
+        app: pipeline-api
+        version: v1.0.0
+    spec:
+      serviceAccountName: pipeline-sa
+      containers:
+        - name: api
+          image: ghcr.io/jonnytan555/e2e-pipeline:v1.0.0  # pin exact tag, never :latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: pipeline-config
+            - secretRef:
+                name: pipeline-secret
+          resources:
+            requests:
+              cpu: "250m"      # K8s uses this to schedule the Pod on a suitable node
+              memory: "256Mi"
+            limits:
+              cpu: "500m"      # K8s kills the Pod if it exceeds this
+              memory: "512Mi"
+          readinessProbe:       # Pod is NOT added to Service until this passes
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:        # Pod is restarted if this fails
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3

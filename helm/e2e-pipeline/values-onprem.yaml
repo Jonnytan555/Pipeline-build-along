@@ -1,0 +1,21 @@
+# On-premises (bare-metal / VMware) overrides
+replicaCount: 1
+
+service:
+  type: NodePort   # no cloud load balancer available
+
+ingress:
+  enabled: true
+  host: api.pipeline.local
+  className: nginx
+
+config:
+  awsRegion: ""
+  s3RawBucket: ""           # MinIO bucket used instead
+  s3ProcessedBucket: ""
+  dbHost: "postgres.pipeline.local"
+  dbName: "warehouse_db"
+  logLevel: "DEBUG"
+
+autoscaling:
+  enabled: false

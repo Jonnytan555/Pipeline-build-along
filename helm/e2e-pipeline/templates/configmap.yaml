@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "e2e-pipeline.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "e2e-pipeline.labels" . | nindent 4 }}
+data:
+  AWS_REGION: {{ .Values.config.awsRegion | quote }}
+  S3_RAW_BUCKET: {{ .Values.config.s3RawBucket | quote }}
+  S3_PROCESSED_BUCKET: {{ .Values.config.s3ProcessedBucket | quote }}
+  DB_HOST: {{ .Values.config.dbHost | quote }}
+  DB_PORT: {{ .Values.config.dbPort | quote }}
+  DB_NAME: {{ .Values.config.dbName | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}

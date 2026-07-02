@@ -1,0 +1,12 @@
+apiVersion: v2
+name: e2e-pipeline
+description: Full enterprise end-to-end data pipeline — API layer
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: pipeline-team
+keywords:
+  - pipeline
+  - fastapi
+  - data-engineering

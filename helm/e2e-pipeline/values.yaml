@@ -1,0 +1,40 @@
+# Default values — override per environment with values-<env>.yaml
+image:
+  repository: ghcr.io/jonnytan555/e2e-pipeline
+  tag: "v1.0.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: false
+  host: api.pipeline.internal
+  className: nginx
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+config:
+  awsRegion: "eu-west-2"
+  s3RawBucket: ""
+  s3ProcessedBucket: ""
+  dbHost: ""
+  dbPort: "5432"
+  dbName: "warehouse_db"
+  logLevel: "INFO"
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70

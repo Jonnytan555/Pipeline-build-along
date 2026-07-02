@@ -26,6 +26,12 @@ env/
 # Java binaries
 *.jar
 
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/terraform.tfvars
+
 # OS
 .DS_Store
 Thumbs.db

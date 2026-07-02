@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: pipeline-api
+  namespace: pipeline
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: pipeline-api
+  template:
+    metadata:
+      labels:
+        app: pipeline-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/jonnytan555/e2e-pipeline:v1.0.0
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: pipeline-config
+            - secretRef:
+                name: pipeline-secret
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+  strategy:
+    canary:
+      # Gradually shift traffic: 5% → 20% → 50% → 100%
+      # Auto-pause at each step; AnalysisRun decides promote vs abort
+      steps:
+        - setWeight: 5         # route 5% of traffic to new version
+        - pause: {}            # pause indefinitely (or until analysis passes)
+        - analysis:
+            templates:
+              - templateName: success-rate
+            args:
+              - name: service-name
+                value: pipeline-api
+        - setWeight: 20
+        - pause: {duration: 2m}
+        - analysis:
+            templates:
+              - templateName: success-rate
+            args:
+              - name: service-name
+                value: pipeline-api
+        - setWeight: 50
+        - pause: {duration: 2m}
+        - setWeight: 100

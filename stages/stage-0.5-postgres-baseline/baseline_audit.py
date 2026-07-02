@@ -98,7 +98,7 @@ _ORPHAN_ORDERS = sa.text("""
     SELECT COUNT(*) AS orphan_orders
     FROM fact_orders fo
     WHERE NOT EXISTS (
-        SELECT 1 FROM dim_customers dc WHERE dc.customer_key = fo.customer_key
+        SELECT 1 FROM dim_customer dc WHERE dc.customer_key = fo.customer_key
     )
 """)
 
@@ -108,15 +108,15 @@ _NULL_RATES = sa.text("""
         COUNT(*) AS total_rows,
         SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) AS null_order_id,
         SUM(CASE WHEN customer_key IS NULL THEN 1 ELSE 0 END) AS null_customer_key,
-        SUM(CASE WHEN net_amount IS NULL THEN 1 ELSE 0 END) AS null_net_amount
+        SUM(CASE WHEN total_amount IS NULL THEN 1 ELSE 0 END) AS null_total_amount
     FROM fact_orders
 """)
 
-# Tables to count — in order of the star schema
+# Tables to count — matching actual PostgreSQL schema
 _TABLES = [
-    "dim_customers", "dim_date", "dim_products", "dim_devices",
-    "fact_orders", "fact_sensor_readings", "fact_pipeline_runs",
-    "agg_daily_orders", "agg_hourly_sensors",
+    "dim_customer", "dim_product",
+    "fact_orders", "orders_enriched",
+    "revenue_by_customer", "revenue_by_category",
 ]
 
 

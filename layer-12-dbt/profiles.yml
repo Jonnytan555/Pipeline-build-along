@@ -1,0 +1,14 @@
+# dbt connection profile — reads credentials from environment variables.
+# Copy to ~/.dbt/profiles.yml or set DBT_PROFILES_DIR=layer-12-dbt/
+pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host:     "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port:     "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      dbname:   "{{ env_var('POSTGRES_DB',   'processed_db') }}"
+      user:     "{{ env_var('POSTGRES_USER', 'pipeline') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'pipeline_pass') }}"
+      schema: dbt_pipeline
+      threads: 4

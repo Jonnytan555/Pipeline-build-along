@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: dim_customer
+    description: "One row per unique customer — surrogate key + name + country"
+    columns:
+      - name: customer_key
+        tests: [not_null, unique]
+      - name: customer_name
+        tests: [not_null]
+
+  - name: dim_product
+    description: "One row per unique product — surrogate key + name + category"
+    columns:
+      - name: product_key
+        tests: [not_null, unique]
+      - name: product_name
+        tests: [not_null]
+
+  - name: fact_orders
+    description: "One row per order — FK to dim_customer and dim_product"
+    columns:
+      - name: order_id
+        tests: [not_null, unique]
+      - name: customer_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+      - name: product_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+      - name: total_amount
+        tests: [not_null]
+
+  - name: revenue_by_category
+    description: "Pre-aggregated revenue per product category"
+    columns:
+      - name: category
+        tests: [not_null, unique]
+
+  - name: revenue_by_customer
+    description: "Pre-aggregated revenue per customer"
+    columns:
+      - name: customer_name
+        tests: [not_null, unique]

@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: pipeline
+    description: "Tables written by the Spark / Airflow ETL (Layer 3 / 4)"
+    schema: public
+    tables:
+      - name: orders_enriched
+        description: "Joined + cleaned orders — one row per non-cancelled order"
+        columns:
+          - name: order_id
+            tests: [not_null, unique]
+          - name: customer_name
+            tests: [not_null]
+          - name: total_amount
+            tests: [not_null]
+          - name: status
+            tests:
+              - accepted_values:
+                  values: ['pending', 'shipped', 'delivered']

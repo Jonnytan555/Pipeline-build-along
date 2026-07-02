@@ -50,7 +50,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 import requests
@@ -86,7 +86,7 @@ class Dataset:
     columns: list[Column] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     freshness_sla_hours: int = 24            # alert if not updated within N hours
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @property
     def qualified_name(self) -> str:
@@ -112,7 +112,7 @@ class LineageEdge:
     run_id: str = ""
     records_in: int = 0
     records_out: int = 0
-    executed_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    executed_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 # ── Pipeline catalog (this project's datasets) ────────────────────────────────
